@@ -4,12 +4,17 @@ require_relative "./config_service"
 require_relative "./configuration_repository_service"
 require_relative "./data_sources/json_build_data_source"
 require_relative "./data_sources/json_user_data_source"
+require_relative "./dot_keys_variable_service"
 require_relative "./environment_variable_service"
+require_relative "./setting_service"
 require_relative "./onboarding_service"
 require_relative "./project_service"
 require_relative "./notification_service"
+require_relative "./update_fastlane_ci_service"
 require_relative "./user_service"
 require_relative "./worker_service"
+require_relative "./xcode_manager_service"
+require_relative "./apple_id_service"
 
 module FastlaneCI
   # A class that stores the singletones for each
@@ -30,6 +35,8 @@ module FastlaneCI
       @_configuration_git_repo = nil
       @_ci_user = nil
       @_provider_credential = nil
+      @_bot_user_client = nil
+      @_onboarding_user_client = nil
 
       # Reset services
       @_project_service = nil
@@ -40,6 +47,12 @@ module FastlaneCI
       @_config_service = nil
       @_worker_service = nil
       @_configuration_repository_service = nil
+      @_update_fastlane_ci_service = nil
+      @_environment_variable_service = nil
+      @_setting_service = nil
+      @_dot_keys_variable_service = nil
+      @_xcode_manager_service = nil
+      @_apple_id_service = nil
     end
 
     ########################################################
@@ -52,13 +65,13 @@ module FastlaneCI
       return File.expand_path("~/.fastlane/ci/fastlane-ci-config")
     end
 
-    # Setup the fastlane.ci GitRepoConfig
+    # Setup the fastlane.ci GitHubRepoConfig
     #
-    # @return [GitRepoConfig]
+    # @return [GitHubRepoConfig]
     def self.ci_config_repo
-      @_ci_config_repo ||= GitRepoConfig.new(
+      @_ci_config_repo ||= GitHubRepoConfig.new(
         id: "fastlane-ci-config",
-        git_url: FastlaneCI.env.repo_url,
+        git_url: FastlaneCI.dot_keys.repo_url,
         description: "Contains the fastlane.ci configuration",
         name: "fastlane ci",
         hidden: true
@@ -80,13 +93,11 @@ module FastlaneCI
     def self.ci_user
       # Find our fastlane.ci system user
       @_ci_user ||= Services.user_service.login(
-        email: FastlaneCI.env.ci_user_email,
-        password: FastlaneCI.env.ci_user_password
+        email: bot_user_client.emails.find(&:primary).email,
+        password: FastlaneCI.dot_keys.ci_user_password
       )
       if @_ci_user.nil?
-        # rubocop:disable Metrics/LineLength
-        raise "Could not find ci_user for current setup, or the provided ci_user_password is incorrect, please make sure a user with the email #{FastlaneCI.env.ci_user_email} exists in your users.json"
-        # rubocop:enable Metrics/LineLength
+        raise "Could not find ci_user for current setup, or the provided ci_user_password is incorrect."
       end
       return @_ci_user
     end
@@ -103,8 +114,8 @@ module FastlaneCI
     # @return [GitHubProviderCredential]
     def self.provider_credential
       @_provider_credential ||= GitHubProviderCredential.new(
-        email: FastlaneCI.env.initial_clone_email,
-        api_token: FastlaneCI.env.clone_user_api_token
+        email: onboarding_user_client.emails.find(&:primary).email,
+        api_token: FastlaneCI.dot_keys.initial_onboarding_user_api_token
       )
     end
 
@@ -118,7 +129,8 @@ module FastlaneCI
         project_data_source: FastlaneCI::JSONProjectDataSource.create(
           ci_config_git_repo_path,
           git_config: ci_config_repo,
-          user: ci_user
+          user: ci_user,
+          notification_service: Services.notification_service
         )
       )
     end
@@ -174,8 +186,26 @@ module FastlaneCI
       )
     end
 
+    def self.dot_keys_variable_service
+      @_dot_keys_variable_service ||= FastlaneCI::DotKeysVariableService.new
+    end
+
+    def self.xcode_manager_service
+      @_xcode_manager_service ||= FastlaneCI::XcodeManagerService.new(
+        user: ENV["FASTLANE_USER"] # TODO: this will be passed from settings.json via https://github.com/fastlane/ci/issues/870
+      )
+    end
+
     def self.environment_variable_service
-      @_environment_variable_service ||= FastlaneCI::EnvironmentVariableService.new
+      @_environment_variable_service ||= FastlaneCI::EnvironmentVariableService.new(
+        environment_variable_data_source: JSONEnvironmentDataSource.create(ci_config_git_repo_path)
+      )
+    end
+
+    def self.setting_service
+      @_setting_service ||= FastlaneCI::SettingService.new(
+        setting_data_source: JSONSettingDataSource.create(ci_config_git_repo_path)
+      )
     end
 
     def self.provider_credential_service
@@ -184,6 +214,26 @@ module FastlaneCI
 
     def self.onboarding_service
       @_onboarding_service ||= FastlaneCI::OnboardingService.new
+    end
+
+    def self.bot_user_client
+      @_bot_user_client ||= Octokit::Client.new(access_token: FastlaneCI.dot_keys.ci_user_api_token)
+    end
+
+    def self.update_fastlane_ci_service
+      @_update_fastlane_ci_service ||= FastlaneCI::UpdateFastlaneCIService.new
+    end
+
+    def self.onboarding_user_client
+      @_onboarding_user_client ||= Octokit::Client.new(
+        access_token: FastlaneCI.dot_keys.initial_onboarding_user_api_token
+      )
+    end
+
+    def self.apple_id_service
+      @_apple_id_service ||= FastlaneCI::AppleIDService.new(
+        apple_id_data_source: JSONAppleIDDataSource.create(ci_config_git_repo_path)
+      )
     end
   end
 end

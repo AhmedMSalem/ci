@@ -23,7 +23,7 @@ module FastlaneCI
         )
         data_store_folder = ENV["data_store_folder"] # you can set it at runtime!
         data_store_folder ||= File.join(FastlaneCI::FastlaneApp.settings.root, "sample_data")
-        user_data_source = JSONUserDataSource.create(json_folder_path: data_store_folder)
+        user_data_source = JSONUserDataSource.create(data_store_folder)
       end
 
       self.user_data_source = user_data_source
@@ -37,8 +37,8 @@ module FastlaneCI
       user_data_source.users
     end
 
-    def create_user!(id: nil, email: nil, password: nil)
-      email = email.strip
+    def create_user!(id: nil, email:, password:)
+      email.strip!
 
       unless user_data_source.user_exist?(email: email)
         logger.debug("Creating account #{email}")
@@ -49,25 +49,21 @@ module FastlaneCI
       return nil
     end
 
-    # TODO: THIS ALWAYS TURNS THE PROVIDER CREDENTIALS INTO HASHES
-    def update_user!(user: nil)
-      success = user_data_source.update_user!(user: user)
-      if success
-        # TODO: remove this message if https://github.com/fastlane/ci/issues/292 is fixed
-        # rubocop:disable Metrics/LineLength
-        logger.info("Updated user #{user.email}, that means you should call `find_user(id:)` see https://github.com/fastlane/ci/issues/292")
-        # rubocop:enable Metrics/LineLength
-      end
-      return success
+    def update_user!(user:)
+      user_data_source.update_user!(user: user)
+    end
+
+    def delete_user!(user:)
+      user_data_source.delete_user!(user: user)
     end
 
     # @return [User]
-    def find_user(id: nil)
+    def find_user(id:)
       return user_data_source.find_user(id: id)
     end
 
     def login(email:, password:)
-      email = email.strip
+      email.strip!
 
       logger.debug("Attempting to login user with email #{email}")
       user = user_data_source.login(email: email, password: password)
@@ -116,13 +112,6 @@ module FastlaneCI
         )
         update_user!(user: new_user)
       end
-    end
-
-    protected
-
-    # Not sure if this must be here or not, but we can open a discussion on this.
-    def commit_repo_changes!(message: nil, file_to_commit: nil)
-      Services.configuration_git_repo.commit_changes!(commit_message: message, file_to_commit: file_to_commit)
     end
   end
 end

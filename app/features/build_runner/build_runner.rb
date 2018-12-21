@@ -1,6 +1,9 @@
 require_relative "../../shared/models/artifact"
 require_relative "./build_runner_output_row"
 
+# ideally we'd have a nicer way to inject this
+require_relative "../../features/build/build_controller"
+
 module FastlaneCI
   # Class that represents a BuildRunner, used
   # to run tests for a given commit sha
@@ -38,8 +41,8 @@ module FastlaneCI
     # This is an array of hashes
     attr_accessor :all_build_output_log_rows
 
-    # All blocks listening to changes for this build
-    attr_accessor :build_change_observer_blocks
+    # All build change observers that are listening to changes for this build
+    attr_accessor :build_change_listeners
 
     # Work queue where builds should be run
     attr_reader :work_queue
@@ -47,11 +50,27 @@ module FastlaneCI
     # Array of env variables that were set, that we need to unset after the run
     attr_accessor :environment_variables_set
 
-    def initialize(project:, sha:, github_service:, notification_service:, work_queue:, trigger:, git_fork_config: nil)
+    # Folder where the code will be checked out to, and where the build will happen
+    attr_reader :local_build_folder
+
+    def initialize(
+      project:,
+      sha:,
+      github_service:,
+      notification_service:,
+      work_queue:,
+      trigger:,
+      git_fork_config:,
+      local_build_folder: nil
+    )
       if trigger.nil?
-        # rubocop:disable Metrics/LineLength
-        raise "No trigger provided, this is probably caused by a build being triggered, but then the project not having this particular build trigger associated"
-        # rubocop:enable Metrics/LineLength
+        raise "No trigger provided, this is probably caused by a build being triggered, " \
+              "but then the project not having this particular build trigger associated"
+      end
+
+      if git_fork_config.nil?
+        raise "No `git_fork_config` provided when creating a new `BuildRunner` object. A `git_fork_config`" \
+              " is required to have the necessary information for historic builds to re-run a build"
       end
 
       # Setting the variables directly (only having `attr_reader`) as they're immutable
@@ -59,9 +78,10 @@ module FastlaneCI
       @project = project
       @sha = sha
       @git_fork_config = git_fork_config
+      @local_build_folder = local_build_folder
 
       self.all_build_output_log_rows = []
-      self.build_change_observer_blocks = []
+      self.build_change_listeners = []
 
       # TODO: provider credential should determine what exact CodeHostingService gets instantiated
       @code_hosting_service = github_service
@@ -70,10 +90,11 @@ module FastlaneCI
 
       prepare_build_object(trigger: trigger)
 
+      local_folder = @local_build_folder || File.join(project.local_repo_path, "builds", sha)
       @repo = GitRepo.new(
         git_config: project.repo_config,
         provider_credential: github_service.provider_credential,
-        local_folder: File.join(project.local_repo_path, "builds", sha),
+        local_folder: local_folder,
         notification_service: notification_service,
         async_start: false
       )
@@ -87,6 +108,7 @@ module FastlaneCI
     # Use this method for additional setup for subclasses
     # This method could have any number of additional parameters
     # that allow you to customize the runner
+    # This method is called after `.new` was called from outside of BuildRunner
     def setup
       not_implemented(__method__)
     end
@@ -142,14 +164,11 @@ module FastlaneCI
 
       if git_fork_config
         pull_before_checkout_success = repo.switch_to_fork(
-          clone_url: git_fork_config.clone_url,
-          branch: git_fork_config.branch,
-          sha: git_fork_config.current_sha,
-          local_branch_name: "#{git_fork_config.branch}_local_fork",
+          git_fork_config: git_fork_config,
+          local_branch_prefex: git_fork_config.branch.to_s,
           use_global_git_mutex: false
         )
       else
-        repo.reset_hard!
         logger.debug("Pulling `master` in checkout_sha")
         repo.pull
       end
@@ -164,19 +183,44 @@ module FastlaneCI
 
     def pre_run_action(&completion_block)
       logger.debug("Running pre_run_action in checkout_sha")
+
       checkout_sha do |checkout_success|
         if checkout_success
-          setup_build_specific_environment_variables
+          if setup_tooling_environment? # see comment for `#setup_tooling_environment?` method
+            setup_build_specific_environment_variables
+            completion_block.call(checkout_success)
+          end
         else
           # TODO: this could be a notification specifically for user interaction
           logger.debug("Unable to launch build runner because we were unable to checkout the required sha: #{sha}")
+          completion_block.call(checkout_success)
         end
-        completion_block.call(checkout_success)
       end
+    end
+
+    # Implement this method in sub classes to prepare necessary tooling
+    # like Xcode or Android studio, to be able to successfully run a build
+    # @return [Boolean] Return `false` if the build trigger some longer process
+    #         e.g. installing a new development environment. This will not call
+    #         the completion block and interrupt running the give build.
+    #         It's critical that the `setup_tooling_environment?` method
+    #         added the same build runner onto the work queue again
+    #         Check out the `fastlane_build_runner` implementation for more details
+    def setup_tooling_environment?
+      not_implemented(__method__)
     end
 
     def setup_build_specific_environment_variables
       @environment_variables_set = []
+
+      # Set the CI specific Environment variables first
+      build_url = File.join(
+        Services.dot_keys_variable_service.keys.ci_base_url,
+        "projects",
+        project.id,
+        "builds",
+        current_build_number.to_s
+      )
 
       # We try to follow the existing formats
       # https://wiki.jenkins.io/display/JENKINS/Building+a+software+project
@@ -186,23 +230,51 @@ module FastlaneCI
         WORKSPACE: project.local_repo_path,
         GIT_URL: repo.git_config.git_url,
         GIT_SHA: current_build.sha,
-        BUILD_URL: "https://fastlane.ci", # TODO: actually build the URL, we don't know our own host, right?
+        BUILD_URL: build_url,
+        BUILD_ID: current_build_number.to_s,
         CI_NAME: "fastlane.ci",
+        FASTLANE_CI: true,
         CI: true
       }
 
-      if git_fork_config && git_fork_config.branch.to_s.length > 0
-        env_mapping[:GIT_BRANCH] = git_fork_config.branch # TODO: does this work?
+      if git_fork_config.branch.to_s.length > 0
+        env_mapping[:GIT_BRANCH] = git_fork_config.branch.to_s
       else
-        env_mapping[:GIT_BRANCH] = "master" # TODO: use actual default branch?
+        env_mapping[:GIT_BRANCH] = "master"
       end
 
       # We need to duplicate some ENV variables
       env_mapping[:CI_BUILD_NUMBER] = env_mapping[:BUILD_NUMBER]
       env_mapping[:CI_BUILD_URL] = env_mapping[:BUILD_URL]
       env_mapping[:CI_BRANCH] = env_mapping[:GIT_BRANCH]
-      # env_mapping[:CI_PULL_REQUEST] = nil # TODO: do we have the PR information here?
+      # env_mapping[:CI_PULL_REQUEST] = nil # It seems like we don't have PR information here
 
+      # Now that we have the CI specific ENV variables, let's go through the ENV variables
+      # the user defined in their configuration
+      Services.environment_variable_service.environment_variables.each do |environment_variable|
+        if env_mapping.key?(environment_variable.key.to_sym)
+          # TODO: this is probably large enough of an issue to use the fastlane.ci
+          #       notification system to show an error to the user
+          logger.error("Overwriting CI specific environment variable of key #{environment_variable.key} - " \
+            "this is not recommended")
+        end
+        env_mapping[environment_variable.key.to_sym] = environment_variable.value
+      end
+
+      # Now set the project specific environment variables
+      project.environment_variables.each do |environment_variable|
+        if env_mapping.key?(environment_variable.key.to_sym)
+          # TODO: similar to above: better error handling, depending on what variable gets overwritten
+          #       this might be a big deal
+          logger.error("Overwriting CI specific environment variable of key #{environment_variable.key}")
+        end
+        env_mapping[environment_variable.key.to_sym] = environment_variable.value
+      end
+
+      # Here we'll set the branch specific environment variables once this is implemented
+      # This might not be top priority for a v1
+
+      # Finally, set all the ENV variables for the given build
       env_mapping.each do |key, value|
         set_build_specific_env_variable(key: key, value: value)
       end
@@ -221,14 +293,8 @@ module FastlaneCI
       environment_variables_set << key
     end
 
-    def reset_repo_state
-      # When we're done, clean up by resetting
-      repo.reset_hard!
-    end
-
     def post_run_action
       logger.debug("Finished running #{project.project_name} for #{sha}")
-      reset_repo_state
 
       unset_build_specific_environment_variables
     end
@@ -283,8 +349,16 @@ module FastlaneCI
       else
         # No work queue? Just call the block then
         logger.debug("Not using a workqueue for build runner #{self.class}, this is probably a bug")
-        work_block.call
-        post_run_block.call
+
+        begin
+          work_block.call
+        rescue StandardError => ex
+          logger.error(ex)
+        ensure
+          # this is already called in an ensure block if we're using a workqueue to execute it
+          # so no need to wrap the task queue's version of `post_run_block`
+          post_run_block.call
+        end
       end
     end
 
@@ -312,22 +386,31 @@ module FastlaneCI
       all_build_output_log_rows << row
 
       # 2) Report back to all listeners, usually socket connections
-      build_change_observer_blocks.each do |current_block|
-        current_block.call(row)
+      listeners_done_listening = []
+      build_change_listeners.each do |current_listener|
+        if current_listener.done_listening?
+          listeners_done_listening << current_listener
+          next
+        end
+
+        current_listener.row_received(row)
       end
+
+      # remove any listeners that are done listening
+      self.build_change_listeners -= listeners_done_listening
     end
 
     # Add a listener to get real time updates on new rows (see `new_row`)
     # This is used for the socket connection to the user's browser
-    def add_listener(block)
-      build_change_observer_blocks << block
+    def add_build_change_listener(listener)
+      build_change_listeners << listener
     end
 
     def prepare_build_object(trigger:)
       builds = Services.build_service.list_builds(project: project)
 
       if builds.count > 0
-        new_build_number = builds.sort_by(&:number).last.number + 1
+        new_build_number = builds.max_by(&:number).number + 1
       else
         new_build_number = 1 # We start with build number 1
       end
@@ -341,8 +424,8 @@ module FastlaneCI
         # so that utc stuff is discoverable
         timestamp: Time.now.utc,
         duration: -1,
-        sha: sha,
-        trigger: trigger.type
+        trigger: trigger.type,
+        git_fork_config: git_fork_config
       )
       save_build_status!
     end
@@ -350,7 +433,7 @@ module FastlaneCI
     private
 
     def save_build_status_locally!
-      # Create or update the local build file in the config directory
+      # Create local build file in the config directory
       Services.build_service.add_build!(
         project: project,
         build: current_build
@@ -377,10 +460,13 @@ module FastlaneCI
     def save_build_status_source!
       status_context = project.project_name
 
+      build_path = FastlaneCI::BuildJSONController.build_url(project_id: project.id, build_number: current_build.number)
+      build_url = FastlaneCI.dot_keys.ci_base_url + build_path
       code_hosting_service.set_build_status!(
         repo: project.repo_config.git_url,
         sha: sha,
         state: current_build.status,
+        target_url: build_url,
         status_context: status_context,
         description: current_build.description
       )

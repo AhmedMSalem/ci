@@ -31,16 +31,28 @@ module FastlaneCI
     # Updates a user existing in the configuration repository `users.json`
     post "#{HOME}/update" do
       if valid_params?(params, post_parameter_list_for_validation)
-        new_user = User.new(
+        updated_user = User.new(
           id: params[:id],
-          email: params[:email],
-          password: params[:password]
+          email: params[:email]
         )
 
-        Services.user_service.update_user!(new_user)
+        Services.user_service.update_user!(user: updated_user)
       end
 
       redirect(HOME)
+    end
+
+    # Deletes a user existing in the configuration repository `users.json`
+    post "#{HOME}/delete/*" do |user_id|
+      user = Services.user_service.find_user(id: user_id)
+
+      if !user.nil?
+        Services.user_service.delete_user!(user: user)
+      else
+        logger.debug("User not deleted, since user with `id` #{user_id} does not exist.")
+      end
+
+      redirect(back)
     end
 
     private
@@ -70,7 +82,7 @@ module FastlaneCI
 
     # @return [Set[Symbol]]
     def post_parameter_list_for_validation
-      return Set.new(%w(id email password_hash))
+      return Set.new(%w(id email))
     end
   end
 end

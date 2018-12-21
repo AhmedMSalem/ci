@@ -10,7 +10,7 @@ module FastlaneCI
 
     # add these as instance methods
     module InstanceMethods
-      def to_json(options)
+      def to_json(options = {})
         to_object_dictionary.to_json(options)
       end
 
@@ -70,7 +70,7 @@ module FastlaneCI
     # add these as class methods
     module ClassMethods
       def from_json!(json_object)
-        instance = new
+        instance, json_object = _initialize_using!(json_object)
         json_object.each do |var, val|
           # If we encounter with a value that is represented by an array, iterate over it.
           if val.kind_of?(Array)
@@ -196,27 +196,51 @@ module FastlaneCI
       protected
 
       def _from_json!(var, val, is_iterable: false)
+        # TODO: attribute_key_name_map doesn't seem to be used anywhere in the code base
         if attribute_key_name_map.key(var)
           var_name = attribute_key_name_map.key(var).to_sym
         else
           var_name = "@#{var}".to_sym
         end
+
         if json_to_attribute_name_proc_map.key?(var_name)
           var_value = json_to_attribute_name_proc_map[var_name].call(val)
         else
           var_value = val
         end
+
         if attribute_to_type_map.key?(var_name)
           if attribute_to_type_map[var_name].include?(FastlaneCI::JSONConvertible)
             # classes that include `JSONConvertible` take precedence over custom mapping.
             var_value = attribute_to_type_map[var_name].from_json!(val)
+          else
+            raise TypeError, "#{var_name} does not implement `FastlaneCI::JSONConvertible`"
           end
         elsif is_iterable
           # This is only intended for array properties, it passes the final variable name and a single object of
           # the variable array. Expects to return and object.
           var_value = map_enumerable_type(enumerable_property_name: var_name, current_json_object: val)
         end
+
         return var_name, var_value
+      end
+
+      def _initialize_using!(json_object)
+        instance = allocate
+        required_init_params = instance.method(:initialize).parameters
+                                       .select { |arg| arg[0] == :keyreq }
+                                       .map(&:last)
+        unless (required_init_params - json_object.keys).empty?
+          raise TypeError, "Required initialization parameters not found in the object: #{json_object}"
+        end
+        init_params_hash = json_object.select { |key, _value| required_init_params.include?(key) }
+        if instance.method(:initialize).parameters.empty?
+          instance.send(:initialize)
+        else
+          instance.send(:initialize, init_params_hash)
+        end
+        clean_json_object = json_object.reject { |key| required_init_params.include?(key) }
+        return instance, clean_json_object
       end
     end
   end

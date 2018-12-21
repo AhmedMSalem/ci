@@ -1,11 +1,15 @@
 # Added by fastlane.ci team
 .keys
+.ruby-version
+!/spec/fixtures/files/.fastlane/ci/.keys
 fastlane.log
 fastlane.verbose.log
 public/.dist/*
 **/node_modules/*
 package-lock.json
 npm-debug.log
+fastlane/README.md
+fastlane/report.xml
 
 # from https://github.com/github/gitignore/blob/master/Ruby.gitignore
 
@@ -50,3 +54,11 @@ npm-debug.log
 
 # unless supporting rvm < 1.11.0 or doing something fancy, ignore this:
 .rvmrc
+
+# Vagrant VM
+.vagrant
+
+# Various IDE
+.idea
+*.iml
+

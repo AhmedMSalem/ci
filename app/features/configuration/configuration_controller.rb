@@ -13,7 +13,7 @@ module FastlaneCI
     HOME = "/configuration_erb"
 
     get HOME do
-      locals = { title: "Configuration", variables: {} }
+      locals = { title: "Configuration" }
       erb(:index, locals: locals, layout: FastlaneCI.default_layout)
     end
 
@@ -29,19 +29,13 @@ module FastlaneCI
     # 3) If the data is not valid, display an error message
     post "#{HOME}/keys" do
       if valid_params?(params, post_parameter_list_for_validation)
-        Services.environment_variable_service.write_keys_file!(locals: params)
-        variables = {
-          status: STATUS[:success],
-          message: "#{Services.environment_variable_service.keys_file_path_relative_to_home} file written."
-        }
+        Services.dot_keys_variable_service.write_keys_file!(locals: params)
+        flash[:success] = "#{Services.dot_keys_variable_service.keys_file_path_relative_to_home} file written."
       else
-        variables = {
-          status: STATUS[:error],
-          message: "#{Services.environment_variable_service.keys_file_path_relative_to_home} file NOT written."
-        }
+        flash[:error] = "#{Services.dot_keys_variable_service.keys_file_path_relative_to_home} file NOT written."
       end
 
-      locals = { title: "Configuration", variables: variables }
+      locals = { title: "Configuration" }
       erb(:index, locals: locals, layout: FastlaneCI.default_layout)
     end
 
@@ -53,7 +47,7 @@ module FastlaneCI
 
     # @return [Hash]
     def keys
-      return FastlaneCI.env.all
+      return FastlaneCI.dot_keys.all
     end
 
     #####################################################
@@ -63,8 +57,8 @@ module FastlaneCI
     # @return [Set[String]]
     def post_parameter_list_for_validation
       return Set.new(
-        %w(encryption_key ci_user_email ci_user_password repo_url
-           clone_user_email clone_user_api_token)
+        %w(encryption_key ci_user_password ci_user_api_token repo_url
+           initial_onboarding_user_api_token)
       )
     end
   end

@@ -22,15 +22,12 @@
           <%= build.timestamp.strftime("%Y%m%dT%H%M%S%z") %>
         </td>
         <td>
-          <!-- # TODO: The line below doesn't work for `git://` URLs (which we currently don't support anyway) -->
-          <a href="<%= build.project.repo_config.git_url %>/commit/<%= build.sha %>" target="_blank" class="commit-sha">
-            <%= build.sha[0...7] %>
+          <a href="<%= build.link_to_remote_commit %>" target="_blank" class="commit-sha">
+            <%= build.human_friendly_branch_information %>
           </a>
         </td>
         <td>
-          <a href="/projects_erb/<%= project.id %>/trigger?sha=<%= build.sha %>" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent">
-          Re-Run for this commit
-          </a>
+          <%= erb :"../../global/trigger_job_button", locals: { project: project, build: build, disabled: false } %>
         </td>
       </tr>
     <% end %>

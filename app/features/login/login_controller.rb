@@ -1,7 +1,7 @@
 # Internal
 require_relative "../../shared/controller_base"
 require_relative "../../services/user_service"
-require_relative "../../services/environment_variable_service"
+require_relative "../../services/dot_keys_variable_service"
 require_relative "../../shared/models/github_provider_credential"
 
 require "octokit"
@@ -36,10 +36,10 @@ module FastlaneCI
 
     # Login with fastlane.ci credentials
     get "#{HOME}/ci_login" do
-      client = Octokit::Client.new(access_token: FastlaneCI.env.clone_user_api_token)
+      client = Octokit::Client.new(access_token: FastlaneCI.dot_keys.ci_user_api_token)
 
       unless client.nil?
-        email = client.user[:email]
+        email = client.emails.find(&:primary).email
       end
       locals = {
         title: "Login with your fastlane.ci account",
@@ -138,14 +138,13 @@ module FastlaneCI
         session[:user] = user
       end
 
-      # TODO: not a big deal right now, but we should have a way of automatically generating the correct
+      # not a big deal right now, but we should have a way of automatically generating the correct
       # CodeHostingService subclass based on the provider_credential type.
       git_hub_service = FastlaneCI::GitHubService.new(provider_credential: github_provider_credential)
 
       if git_hub_service.session_valid?
         redirect("/dashboard_erb")
       else
-        # TODO: show error to user
         redirect("/login_erb")
       end
     end

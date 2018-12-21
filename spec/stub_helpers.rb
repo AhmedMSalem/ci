@@ -7,8 +7,17 @@ module StubHelpers
     allow(File).to receive(:write)
   end
 
+  def stub_dot_keys
+    allow_any_instance_of(FastlaneCI::DotKeysVariables).to receive(:all).and_return(environment_variables)
+    allow_any_instance_of(FastlaneCI::DotKeysVariables).to receive(:encryption_key).and_return("encryption_key")
+    allow_any_instance_of(FastlaneCI::DotKeysVariables).to receive(:ci_user_password).and_return("ci_user_password")
+    allow_any_instance_of(FastlaneCI::DotKeysVariables).to receive(:ci_user_api_token).and_return("bot_user_api_token")
+    allow_any_instance_of(FastlaneCI::DotKeysVariables).to receive(:repo_url).and_return("https://github.com/user_name/repo_name")
+    allow_any_instance_of(FastlaneCI::DotKeysVariables).to receive(:initial_onboarding_user_api_token).and_return("initial_onboarding_user_api_token")
+  end
+
   def stub_git_repos
-    fake_git_config = FastlaneCI::GitRepoConfig.new(
+    fake_git_config = FastlaneCI::GitHubRepoConfig.new(
       id: "Fake id",
       git_url: "Not a real url",
       description: "Fake git repo config",
@@ -28,6 +37,7 @@ module StubHelpers
     allow_any_instance_of(FastlaneCI::GitRepo).to receive(:git_config).and_return(fake_git_config)
     allow_any_instance_of(FastlaneCI::GitRepo).to receive(:repo_auth).and_return(fake_repo_auth)
     allow_any_instance_of(FastlaneCI::GitRepo).to receive(:clone)
+    allow_any_instance_of(FastlaneCI::GitRepo).to receive(:local_folder).and_return(fixture_path)
   end
 
   def stub_services
@@ -35,7 +45,7 @@ module StubHelpers
     allow(FastlaneCI::Services).to receive(:project_service).and_return(
       FastlaneCI::ProjectService.new(
         project_data_source: FastlaneCI::JSONProjectDataSource.create(
-          git_repo, user: ci_user
+          git_repo_path, user: ci_user
         )
       )
     )

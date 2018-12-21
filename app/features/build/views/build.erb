@@ -5,7 +5,7 @@
     </div>
   </header>
 
-  <%= erb :"../../partials/navigation" %>
+  <%= erb :"../../global/navigation" %>
 
   <main class="mdl-layout__content" style="padding: 40px" id="main">
 
@@ -25,8 +25,34 @@
       <td>Job Trigger</td><td><%= build.trigger %></td>
     </tr>
     <tr>
-      <td>Sha</td><td><%= build.sha %></td>
+      <td>Sha</td><td>
+      <a href="<%= build.link_to_remote_commit %>" target="_blank" class="commit-sha">
+        <%= build.sha %>
+      </a>
+      </td>
     </tr>
+    <% if build.git_fork_config %>
+      <% if build.git_fork_config.branch.to_s.length > 0 %>
+        <tr>
+          <td>Branch</td><td><%= build.git_fork_config.branch %></td>
+        </tr>
+      <% end %>
+      <% if build.git_fork_config.ref.to_s.length > 0 %>
+        <tr>
+          <td>Ref</td><td><%= build.git_fork_config.ref %></td>
+        </tr>
+      <% end %>
+      <% if build.git_fork_config.clone_url.to_s.length > 0 %>
+        <tr>
+          <td>Clone URL</td><td><%= build.git_fork_config.clone_url %></td>
+        </tr>
+      <% end %>
+    <% end %>
+    <% if build.build_tools.count > 0 %>
+      <tr>
+        <td>Build tools</td><td><%= build.build_tools %></td>
+      </tr>
+    <% end %>
     <% if build.description.to_s.length > 0 %>
       <tr>
         <td>Build description</td><td><%= build.description %></td>
@@ -37,9 +63,7 @@
     </tr>
     <tr>
       <td colspan="2">
-        <a href="/projects_erb/<%= project.id %>/trigger?sha=<%= build.sha %>" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent">
-          Re-Run for this commit
-        </a>
+        <%= erb :"../../global/trigger_job_button", locals: { project: project, build: build, disabled: false } %>
       </td>
     </tr>
   </tbody>
@@ -95,7 +119,7 @@
   document.addEventListener("DOMContentLoaded", function(event) {
     var scheme = "ws://"
     var uri = scheme + window.document.location.host
-    uri += "/?&project=<%= project.id %>&build=<%= build.number %>"; // we add that extra & to make the Ruby URI parser work
+    uri += "/?&project_id=<%= project.id %>&build_number=<%= build.number %>"; // we add that extra & to make the Ruby URI parser work
     var ws = new WebSocket(uri);
     console.log("Listening to web socket connection now for URL " + uri + "...")
     var firstMessageReceived = <%= existing_rows.to_s.length == 0 ? false : true %>;
@@ -106,9 +130,12 @@
       }
       var data = JSON.parse(message.data)
       if (data["html"]) {
+        var mainView = document.getElementById("main");
+        var needsToScrollToBottom = mainView.offsetHeight + mainView.scrollTop == mainView.scrollHeight;
         document.getElementById("log").innerHTML += data["html"]
-        var mainView = document.getElementById("main")
-        mainView.scrollTo(0, mainView.scrollHeight)
+        if (needsToScrollToBottom) {
+          mainView.scrollTo(0, mainView.scrollHeight);
+        }
       }
       if (data["type"] == "last_message") {
         console.log("Last message received - reloading page")

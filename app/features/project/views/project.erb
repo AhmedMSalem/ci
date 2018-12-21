@@ -4,13 +4,9 @@
       <span class="mdl-layout__title"><%= title %></span>
       <div class="mdl-layout-spacer"></div>
       <% if project.job_triggers.any? { |job_trigger| job_trigger.kind_of?(FastlaneCI::ManualJobTrigger) } %>
-        <a href="/projects_erb/<%= project.id %>/trigger" class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent">
-          Trigger Job Now
-        </a>
+          <%= erb :"../../global/trigger_job_button", locals: { project: project, build: nil, disabled: false } %>
       <% else %>
-        <a class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-button--disabled">
-          Trigger Job Now
-        </a>
+          <%= erb :"../../global/trigger_job_button", locals: { project: project, build: nil, disabled: true } %>
       <% end %>
     </div>
     <div class="mdl-layout__tab-bar mdl-js-ripple-effect">
@@ -19,14 +15,14 @@
     </div>
   </header>
 
-  <%= erb :"../../partials/navigation" %>
+  <%= erb :"../../global/navigation" %>
 
   <main class="mdl-layout__content" style="padding: 40px">
     <section class="mdl-layout__tab-panel is-active" id="scroll-tab-info">
       <%= erb(:project_info, locals: { project: project }) %>
     </section>
     <section class="mdl-layout__tab-panel" id="scroll-tab-settings">
-      <%= erb(:project_settings, locals: { project: project , available_lanes: available_lanes, fastfile_path: fastfile_path, fastfile_parser: fastfile_parser }) %>
+      <%= erb(:project_settings, locals: { project: project , available_lanes: available_lanes, fastfile_path: fastfile_path, global_env_variables: global_env_variables, project_env_variables: project_env_variables }) %>
     </section>
   </main>
 </div>

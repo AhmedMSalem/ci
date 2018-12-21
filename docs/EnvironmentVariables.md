@@ -3,17 +3,17 @@
 ## Normal operation focused
 During the normal operation of fastlane.ci, you'll need a few values. Some values are needed for just the first time setup, while others are required 100% of the time.
 
-`FASTLANE_CI_ENCRYPTION_KEY="key"` - Arbitrary key you decide. This will be used for password encryption. **Note: Do not change after selecting a key value, otherwise there will be decoding issues.** 
+`FASTLANE_CI_BASE_URL="https://<myhost.mydomain>"` - Needed so that we can link build output links in your PR statuses back to your ci system, eg: https://example.com/projects_erb/31203571-271e-4c87-9b32-14cf3c82d5ba/builds/42
 
-`FASTLANE_CI_USER="email@bot.com"` - Email address of the fastlane CI bot account you want to use to update all your commit statuses.
+`FASTLANE_CI_ENCRYPTION_KEY="key"` - Arbitrary key you decide. This will be used for password encryption. **Note: Do not change after selecting a key value, otherwise there will be decoding issues.**
+
+`FASTLANE_CI_BOT_API_TOKEN="token"` - API token used to make contributions from `fastlane.ci` to your subscribed projects on behalf of the `fastlane.ci` bot user.
 
 `FASTLANE_CI_PASSWORD="password"` - Password of your fastlane CI bot account.
 
 `FASTLANE_CI_REPO_URL="https://github.com/your-name/your-ci-config"` - Git URL (https) for the configuration repo you wish the server to use.
 
-`FASTLANE_CI_INITIAL_CLONE_EMAIL="email@user.com"` - Email address used for the initial clone for the config repo. **Note: needed just for the first startup of fastlane.ci**.
-
-`FASTLANE_CI_INITIAL_CLONE_API_TOKEN="token"` - API token used for the initial clone for the config repo. **Note: needed just for the first startup of fastlane.ci**.
+`FASTLANE_CI_INITIAL_ONBOARDING_USER_API_TOKEN="token"` - API token used to create and invite the bot user to the `fastlane.ci` configuration repository. **Note: needed just for the first startup of fastlane.ci**.
 
 ## Development focused
 `FASTLANE_CI_SKIP_WORKER_LAUNCH` - Don’t launch workers on startup. Useful if you’re debugging UI things or manual processes that don’t need workers.
@@ -27,6 +27,8 @@ During the normal operation of fastlane.ci, you'll need a few values. Some value
 `FASTLANE_CI_DISABLE_PUSHES` - Sometimes we just want to commit and not push to remote. Useful when debugging your ci config using the same config as your production setup.
 
 `FASTLANE_CI_DISABLE_REMOTE_STATUS_UPDATE` - Disable changing the status of a commit on the remote source, e.g. when something fails, don't set GitHub commit to `:failed`. Primarily useful when debugging your ci config when using the same config as your production setup.
+
+`FASTLANE_CI_ERB_CLIENT` - Override the default Angular application and use the `ERB` client instead.
 
 ## Tips and tricks
 **Here's what @taquitos has in his `.bash_profile`:**

@@ -12,11 +12,6 @@ module FastlaneCI
     # variable to avoid displaying the same message multiple times
     before do
       @progress = false
-
-      if !session[:message].nil? && request.get?
-        @message = session[:message]
-        session[:message] = nil
-      end
     end
 
     get HOME do
@@ -31,15 +26,15 @@ module FastlaneCI
     end
 
     get "#{HOME}/ci_bot_account" do
-      @progress = true if has_ci_user?
+      @progress = true if has_ci_user_password? && has_ci_user_api_token?
       locals = { title: "Onboarding", variables: {} }
       erb(:ci_bot_account, locals: locals, layout: FastlaneCI.default_layout)
     end
 
-    get "#{HOME}/initial_clone_user" do
-      @progress = true if has_clone_user?
+    get "#{HOME}/initial_onboarding_user" do
+      @progress = true if has_initial_onboarding_user_api_token?
       locals = { title: "Onboarding", variables: {} }
-      erb(:initial_clone_user, locals: locals, layout: FastlaneCI.default_layout)
+      erb(:initial_onboarding_user, locals: locals, layout: FastlaneCI.default_layout)
     end
 
     get "#{HOME}/git_repo" do
@@ -54,25 +49,25 @@ module FastlaneCI
     #
     # 2) If the encryption key is not `nil`:
     #
-    #    i.  write the encryption key to the CI keys file (FastlaneCI::EnvironmentVariableService#keys_file_path)
+    #    i.  write the encryption key to the CI keys file (FastlaneCI::DotKeysVariableService#keys_file_path)
     #    ii. load the new environment variables (implicitly)
     #
     # 3) If the encryption key is `nil`, display an error message
     post "#{HOME}/encryption_key" do
       if valid_params?(params, post_parameter_list_for_encryption_key_validation)
-        Services.environment_variable_service.write_keys_file!(
+        Services.dot_keys_variable_service.write_keys_file!(
           locals: format_params(
             params, post_parameter_list_for_encryption_key_validation
           )
         )
 
-        session[:message] = <<~HTML
-          #{Services.environment_variable_service.keys_file_path_relative_to_home} file written with the configuration
-          values:<br /> FASTLANE_CI_ENCRYPTION_KEY=#{params[:encryption_key]}
+        flash[:success] = <<~HTML
+          <code>#{Services.dot_keys_variable_service.keys_file_path_relative_to_home}</code> file written with the
+          configuration value <code>FASTLANE_CI_ENCRYPTION_KEY=#{params[:encryption_key]}</code>
         HTML
       else
-        session[:message] = <<~HTML
-          ERROR: #{Services.environment_variable_service.keys_file_path_relative_to_home} file not written.
+        flash[:error] = <<~HTML
+          #{Services.dot_keys_variable_service.keys_file_path_relative_to_home} file not written.
         HTML
       end
 
@@ -91,31 +86,28 @@ module FastlaneCI
     # 3) If the data is not valid, display an error message
     post "#{HOME}/ci_bot_account" do
       if valid_params?(params, post_parameter_list_for_ci_bot_user_validation)
-        Services.environment_variable_service.write_keys_file!(
+        validate_api_token_correct(params[:ci_user_api_token].strip, "ci_bot_account")
+
+        Services.dot_keys_variable_service.write_keys_file!(
           locals: format_params(
             params, post_parameter_list_for_ci_bot_user_validation
           )
         )
 
-        session[:message] = <<~HTML
-          #{Services.environment_variable_service.keys_file_path_relative_to_home} file written with the configuration
-          values:<br />
-
-          <ul>
-            <li>FASTLANE_CI_USER=#{params[:ci_user_email]}</li>
-            <li>FASTLANE_CI_PASSWORD=#{params[:ci_user_password]}</li>
-          </ul>
+        flash[:success] = <<~HTML
+          <code>#{Services.dot_keys_variable_service.keys_file_path_relative_to_home}</code> file written with the
+          configuration values <code>FASTLANE_CI_BOT_API_TOKEN</code> and <code>FASTLANE_CI_PASSWORD</code>
         HTML
       else
-        session[:message] = <<~HTML
-          ERROR: #{Services.environment_variable_service.keys_file_path_relative_to_home} file not written.
+        flash[:error] = <<~HTML
+          <code>#{Services.dot_keys_variable_service.keys_file_path_relative_to_home}</code> file not written.
         HTML
       end
 
       redirect("#{HOME}/ci_bot_account")
     end
 
-    # When the `/initial_clone_user` form is submitted:
+    # When the `/initial_onboarding_user` form is submitted:
     #
     # 1) Validate the data passed in
     #
@@ -125,24 +117,34 @@ module FastlaneCI
     #    ii. load the new environment variables (implicitly)
     #
     # 3) If the data is not valid, display an error message
-    post "#{HOME}/initial_clone_user" do
-      if valid_params?(params, post_parameter_list_for_clone_user_validation)
-        scope_validation_error = FastlaneCI::GitHubService.token_scope_validation_error(params[:clone_user_api_token])
+    post "#{HOME}/initial_onboarding_user" do
+      if valid_params?(params, post_parameter_list_for_onboarding_user_validation)
+        api_token = params[:initial_onboarding_user_api_token].strip
+        if api_token.length != 40
+          error_message = "Invalid API token, please ensure you entered an API token and not a password"
+          flash[:error] = error_message
+          logger.error(error_message)
+          logger.error("API tokens are generated by GitHub and are 40 characters long")
+
+          redirect("#{HOME}/initial_onboarding_user")
+        end
+
+        scope_validation_error = FastlaneCI::GitHubService.token_scope_validation_error(
+          params[:initial_onboarding_user_api_token]
+        )
+
         if scope_validation_error.nil?
-          Services.environment_variable_service.write_keys_file!(
+          validate_api_token_correct(params[:initial_onboarding_user_api_token].strip, "initial_onboarding_user")
+
+          Services.dot_keys_variable_service.write_keys_file!(
             locals: format_params(
-              params, post_parameter_list_for_clone_user_validation
+              params, post_parameter_list_for_onboarding_user_validation
             )
           )
 
-          session[:message] = <<~HTML
-            #{Services.environment_variable_service.keys_file_path_relative_to_home} file written with the
-            configuration values:
-
-            <ul>
-              <li>FASTLANE_CI_INITIAL_CLONE_EMAIL='#{params[:clone_user_email]}'</li>
-              <li>FASTLANE_CI_INITIAL_CLONE_API_TOKEN='#{params[:clone_user_api_token]}'</li>
-            </ul>
+          flash[:success] = <<~HTML
+            <code>#{Services.dot_keys_variable_service.keys_file_path_relative_to_home}</code> file written with the
+            configuration value <code>FASTLANE_CI_INITIAL_ONBOARDING_USER_API_TOKEN</code>
           HTML
         else
           scopes, required = scope_validation_error
@@ -151,15 +153,15 @@ module FastlaneCI
           # rubocop:disable Metrics/LineLength
           error_message = "Token should be in \"#{required}\" scope, currently it's in #{scopes_list_wording} #{scopes_wording}."
           # rubocop:enable Metrics/LineLength
-          session[:message] = "ERROR: #{error_message} See the image below."
+          flash[:error] = "#{error_message} See the image below."
           logger.error(error_message)
         end
       else
-        path = Services.environment_variable_service.keys_file_path_relative_to_home
-        session[:message] = "ERROR: #{path} file not written."
+        path = Services.dot_keys_variable_service.keys_file_path_relative_to_home
+        flash[:error] = "#{path} file not written."
       end
 
-      redirect("#{HOME}/initial_clone_user")
+      redirect("#{HOME}/initial_onboarding_user")
     end
 
     # When the `/git_repo` form is submitted:
@@ -174,21 +176,21 @@ module FastlaneCI
     # 2) Redirect back to `/configuration`
     post "#{HOME}/git_repo" do
       if valid_params?(params, post_parameter_list_for_git_repo_validation)
-        Services.environment_variable_service.write_keys_file!(
+        Services.dot_keys_variable_service.write_keys_file!(
           locals: format_params(
             params, post_parameter_list_for_git_repo_validation
           )
         )
-        Services.configuration_repository_service.create_private_remote_configuration_repo
+        Services.configuration_repository_service.setup_private_configuration_repo
         Services.onboarding_service.clone_remote_repository_locally
         Launch.start_github_workers
 
-        session[:message] = <<~HTML
+        flash[:success] = <<~HTML
           Remote repo #{params[:repo_url]} successfully created
         HTML
       else
-        session[:message] = <<~HTML
-          ERROR: Remote repository was not successfully created
+        flash[:error] = <<~HTML
+          Remote repository was not successfully created
         HTML
       end
 
@@ -198,12 +200,27 @@ module FastlaneCI
     private
 
     #####################################################
+    # @!group Redirect Helpers
+    #####################################################
+
+    def validate_api_token_correct(api_token, route)
+      if api_token.length != 40
+        error_message = "Invalid API token, please ensure you entered an API token and not a password"
+        flash[:error] = error_message
+        logger.error(error_message)
+        logger.error("API tokens are generated by GitHub and are 40 characters long")
+
+        redirect("#{HOME}/#{endpoint}")
+      end
+    end
+
+    #####################################################
     # @!group Data: View-specific data
     #####################################################
 
     # @return [Hash]
     def keys
-      return FastlaneCI.env.all
+      return FastlaneCI.dot_keys.all
     end
 
     #####################################################
@@ -212,25 +229,28 @@ module FastlaneCI
 
     # @return [Boolean]
     def has_encryption_key?
-      return not_nil_and_not_empty?(FastlaneCI.env.encryption_key)
+      return not_nil_and_not_empty?(FastlaneCI.dot_keys.encryption_key)
     end
 
     # @return [Boolean]
-    def has_ci_user?
-      return not_nil_and_not_empty?(FastlaneCI.env.ci_user_email) &&
-             not_nil_and_not_empty?(FastlaneCI.env.ci_user_password)
+    def has_ci_user_password?
+      return not_nil_and_not_empty?(FastlaneCI.dot_keys.ci_user_password)
     end
 
     # @return [Boolean]
-    def has_clone_user?
-      return not_nil_and_not_empty?(FastlaneCI.env.initial_clone_email) &&
-             not_nil_and_not_empty?(FastlaneCI.env.clone_user_api_token)
+    def has_ci_user_api_token?
+      return not_nil_and_not_empty?(FastlaneCI.dot_keys.ci_user_api_token)
+    end
+
+    # @return [Boolean]
+    def has_initial_onboarding_user_api_token?
+      return not_nil_and_not_empty?(FastlaneCI.dot_keys.initial_onboarding_user_api_token)
     end
 
     # @return [Boolean]
     def has_remote_github_repo?
-      if not_nil_and_not_empty?(FastlaneCI.env.encryption_key)
-        return not_nil_and_not_empty?(FastlaneCI.env.repo_url) &&
+      if not_nil_and_not_empty?(FastlaneCI.dot_keys.encryption_key)
+        return not_nil_and_not_empty?(FastlaneCI.dot_keys.repo_url) &&
                Services.onboarding_service.correct_setup?
       else
         # Need the encryption key for the configuration_repository_service
@@ -249,12 +269,12 @@ module FastlaneCI
 
     # @return [Set[String]]
     def post_parameter_list_for_ci_bot_user_validation
-      return Set.new(%w(ci_user_email ci_user_password))
+      return Set.new(%w(ci_user_password ci_user_api_token))
     end
 
     # @return [Set[String]]
-    def post_parameter_list_for_clone_user_validation
-      return Set.new(%w(clone_user_email clone_user_api_token))
+    def post_parameter_list_for_onboarding_user_validation
+      return Set.new(%w(initial_onboarding_user_api_token))
     end
 
     # @return [Set[String]]

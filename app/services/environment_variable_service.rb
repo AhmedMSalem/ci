@@ -1,70 +1,75 @@
-require_relative "./file_writers/keys_writer"
+require_relative "data_sources/json_environment_variable_data_source"
+require_relative "../shared/logging_module"
 require_relative "./services"
 
 module FastlaneCI
-  # Logic pertaining to environment variable configuration
+  # Provides access to environment variables
   class EnvironmentVariableService
-    # Write .keys configuration file with proper environment variables. Don't
-    # override old environment variables with `nil` values
-    #
-    # @param  [Hash] locals
-    def write_keys_file!(
-      locals: {
-        encryption_key: nil,
-        ci_user_email: nil,
-        ci_user_password: nil,
-        repo_url: nil,
-        clone_user_email: nil,
-        clone_user_api_token: nil
-      }
-    )
-      non_nil_new_env_variables = locals.reject { |_k, v| v.nil? }
-      new_environment_variables = FastlaneCI.env.all.merge(non_nil_new_env_variables)
-      KeysWriter.new(path: keys_file_path, locals: new_environment_variables).write!
-      reload_dot_env!
+    include FastlaneCI::Logging
+    attr_accessor :environment_variable_data_source
+
+    def initialize(environment_variable_data_source: nil)
+      unless environment_variable_data_source.nil?
+        unless environment_variable_data_source.class <= EnvironmentDataSource
+          raise "environment_variable_data_source must be descendant of #{EnvironmentDataSource.name}"
+        end
+      end
+
+      if environment_variable_data_source.nil?
+        # Default to JSONEnvironmentDataSource
+        # TODO: do we need `sample_data` here?
+        logger.debug(
+          "environment_variable_data_source is new, using `ENV[\"data_store_folder\"]` " \
+          "if available, or `sample_data` folder"
+        )
+        data_store_folder = ENV["data_store_folder"] # you can set it at runtime!
+        data_store_folder ||= File.join(FastlaneCI::FastlaneApp.settings.root, "sample_data")
+        environment_variable_data_source = JSONEnvironmentDataSource.create(data_store_folder)
+      end
+
+      self.environment_variable_data_source = environment_variable_data_source
     end
 
-    # Reloads the environment variables and resets the memoized services that
-    # depend on their values
-    def reload_dot_env!
-      return unless File.exist?(keys_file_path)
+    #####################################################
+    # @!group Environment Variable Logic
+    #####################################################
 
-      require "dotenv"
-      ENV.update(Dotenv::Environment.new(keys_file_path))
-
-      Services.reset_services!
+    def environment_variables
+      environment_variable_data_source.environment_variables
     end
 
-    # Verifies the proper environment variables needed to run the server are
-    # present
-    #
-    # @return [Boolean]
-    def all_env_variables_non_nil?
-      return FastlaneCI.env.all.none? { |_k, v| v.nil? || v.empty? }
+    def create_environment_variable!(key: nil, value: nil)
+      key.strip!
+
+      if environment_variable_data_source.find_environment_variable(environment_variable_key: key).nil?
+        logger.info("Creating ENV variable with key #{key}")
+        return environment_variable_data_source.create_environment_variable!(key: key, value: value)
+      end
+
+      logger.info("Environment Variable #{key} already exists!")
+      return nil
     end
 
-    # The path to the environment variables file
-    #
-    # @return [String]
-    def keys_file_path
-      return File.join(Dir.home, keys_file_path_from_home)
+    def update_environment_variable!(environment_variable:)
+      key = environment_variable.key
+
+      if environment_variable_data_source.find_environment_variable(environment_variable_key: key).nil?
+        logger.info("No existing ENV variable with key #{key}")
+      end
+
+      environment_variable_data_source.update_environment_variable!(
+        environment_variable: environment_variable
+      )
+      # TODO: do we have to write out to the file here? Seems like it's missing
     end
 
-    # The path to the environment variables file relative to HOME
-    #
-    # @return [String]
-    def keys_file_path_relative_to_home
-      return "~/#{keys_file_path_from_home}"
-    end
-
-    private
-
-    # The path to the environment variables file having in mind
-    # that it's relative to HOME
-    #
-    # @return [String]
-    def keys_file_path_from_home
-      return ".fastlane/ci/.keys"
+    def delete_environment_variable!(environment_variable_key:)
+      existing = environment_variable_data_source.find_environment_variable(
+        environment_variable_key: environment_variable_key
+      )
+      environment_variable_data_source.delete_environment_variable!(
+        environment_variable: existing
+      )
     end
   end
 end

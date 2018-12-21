@@ -1,6 +1,7 @@
 require "sinatra/base"
 require "sinatra/reloader"
 require "sinatra/custom_logger"
+require "sinatra/flash"
 require "set"
 require "logger"
 
@@ -14,16 +15,12 @@ module FastlaneCI
   # Handles default configuration like auto-reloading, session management, and erb path correcting
   #
   class ControllerBase < Sinatra::Base
+    enable :sessions
+
     register SetupChecker
+    register Sinatra::Flash
+
     include FastlaneCI::Logging
-
-    # A message to be displayed in a pop-up after POST requests
-    #
-    # @return [String]
-    attr_reader :message
-
-    # Enum for status of POST operations
-    STATUS = { success: :success, error: :error }
 
     # I don't like this here, I'd rather use the mixin for organization, but that isn't done
     # TODO: use mixin

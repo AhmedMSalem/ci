@@ -1,0 +1,19 @@
+<div class="mdl-layout__drawer">
+  <span class="mdl-layout__title">fastlane.ci</span>
+  <nav class="mdl-navigation">
+    <a class="mdl-navigation__link" href="/">Dashboard</a>
+    <% if defined?(user) && user %>
+      <a class="mdl-navigation__link" href="/configuration_erb">Configuration</a>
+      <a class="mdl-navigation__link" href="/notifications_erb">Notifications</a>
+      <a class="mdl-navigation__link" href="/users_erb">Users</a>
+      <a class="mdl-navigation__link" href="/provider_credentials_erb">Provider Credentials</a>
+      <a class="mdl-navigation__link" href="/environment_variables_erb">Global ENV Variables</a>
+      <a class="mdl-navigation__link" href="/xcode_manager_erb">Xcode Manager</a>
+      <a class="mdl-navigation__link" href="/apple_ids_erb">Apple IDs</a>
+    <% end %>
+  </nav>
+  <div class="mdl-layout-spacer"></div>
+  <nav class="mdl-navigation">
+    <a class="mdl-navigation__link" target="_blank" href="https://docs.google.com/forms/d/e/1FAIpQLSfAatcUUf8fXYzcgZFaeoKI_W2dTdBVjN8SOQJLMH7YukkRDA/viewform?usp=sf_link">Give us your feedback</a>
+  </nav>
+</div>
